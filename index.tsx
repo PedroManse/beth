@@ -91,6 +91,7 @@ server
 			text: t.String(),
 		})
 	})
+	
 })();
 
 // People app
@@ -114,6 +115,7 @@ const INFO_COLS: string[] = FILE_MIRROR.cols;
 const PEOPLE_DB: Person[] = FILE_MIRROR.rows;
 
 function SaveFile (){
+	FILE_MIRROR.biggestId = BIGGEST_ID;
 	Bun.write(FILE, JSON.stringify(FILE_MIRROR));
 }
 
@@ -122,8 +124,22 @@ SaveFile()
 function PERSON_HTML(p: Person) {
 	return (
 		<tr>
-			{INFO_COLS.map(r => <th contenteditable="true">{p.info[r]??""}</th> )}
+			{INFO_COLS.map(r => <td contenteditable="true">{p.info[r]??""}</td> )}
 		</tr>
+	)
+}
+
+function ROW_HTML(infoName: string) {
+	return (
+		<th hx-target="this">
+			<p class="row">{infoName}</p>
+			<span
+				style="color:red;"
+				hx-delete="/people/col"
+				hx-swap="outerHTML"
+				hx-vals="js:{'text': event.target.parentElement.querySelector('p').innerText}"
+			>X</span>
+		</th>
 	)
 }
 
@@ -138,23 +154,23 @@ server
 					<input name="text" id="addtext"></input>
 					<button
 						id="col-adder"
-						hx-post="/people/addcol"
+						hx-post="/people/col"
 						hx-target="thead > tr"
 						hx-swap="beforeend"
 						hx-include="[id='addtext']"
-						onclick="this.parentElement.querySelector('input').select()"
+						//onclick="this.parentElement.querySelector('input').select()"
 					>Add Col</button>
 					<button
 						id="row-adder"
-						hx-post="/people/addrow"
+						hx-post="/people/row"
 						hx-target="tbody"
 						hx-swap="beforeend"
-						//onclick="this.parentElement.querySelector('input').select()"
 					>Add Row</button>
+					<button id="table-saver">Save</button>
 			</span>
 			<table> <thead>
 				<tr>
-					{INFO_COLS.map((infoName)=><th>{infoName}</th>)}
+					{INFO_COLS.map(ROW_HTML)}
 				</tr>
 			</thead> <tbody>
 				{PEOPLE_DB.map(PERSON_HTML)}
@@ -162,23 +178,50 @@ server
 		</body>
 		</BASE_HTML>)
 	})
-	.post("/people/addcol", ({ body })=>{
-		if (!INFO_COLS.includes(body.text) && body.text.length) {
-			INFO_COLS.push(body.text);
-			SaveFile();
-			return (<th>{body.text}</th>);
+	.post("/people/col", ({ body })=>{
+		if (INFO_COLS.includes(body.text) || body.text.length === 0) {
+			return
 		}
+		INFO_COLS.push(body.text);
+		SaveFile();
+		return ROW_HTML(body.text)
 	}, {
 		body: t.Object({
 			text: t.String(),
 		})
 	})
-	.post("/people/addrow", ()=>{
+	.delete("/people/col", ({ body })=>{
+		if (body.text.length === 0) return;
+		const index = INFO_COLS.indexOf(body.text)
+		if (index < 0) return;
+		INFO_COLS.splice(index, 1)
+		SaveFile()
+		return;
+	}, {
+		body: t.Object({
+				text: t.String(),
+		})
+	})
+	.post("/people/row", ()=>{
 			const id = ++BIGGEST_ID;
 			const newPerson:Person = ({id, info:{}});
 			PEOPLE_DB.push(newPerson)
 			SaveFile();
 			return PERSON_HTML(newPerson)
+	})
+	.post("/people/update", ({ body })=>{
+		body.forEach((cols, pindex)=>{
+			cols.forEach((col, dindex)=>{
+				PEOPLE_DB[pindex].info[INFO_COLS[dindex]] = col
+			})
+		})
+		SaveFile()
+	}, {
+		body: t.Array(
+			t.Array( // col
+				t.String() // data
+			)
+		)
 	})
 
 })();
