@@ -132,12 +132,13 @@ function PERSON_HTML(p: Person) {
 function ROW_HTML(infoName: string) {
 	return (
 		<th hx-target="this">
-			<p class="row">{infoName}</p>
+			<label class="row">{infoName}</label>
 			<span
-				style="color:red;"
+				class="row-rem"
 				hx-delete="/people/col"
 				hx-swap="outerHTML"
 				hx-vals="js:{'text': event.target.parentElement.querySelector('p').innerText}"
+				onclick="RemCol(this.parentElement)"
 			>X</span>
 		</th>
 	)
@@ -151,22 +152,22 @@ server
 			<link rel="stylesheet" type="text/css" href="/files/people.css"></link>
 
 			<span>
-					<input name="text" id="addtext"></input>
-					<button
-						id="col-adder"
-						hx-post="/people/col"
-						hx-target="thead > tr"
-						hx-swap="beforeend"
-						hx-include="[id='addtext']"
-						//onclick="this.parentElement.querySelector('input').select()"
-					>Add Col</button>
-					<button
-						id="row-adder"
-						hx-post="/people/row"
-						hx-target="tbody"
-						hx-swap="beforeend"
-					>Add Row</button>
-					<button id="table-saver">Save</button>
+				<input name="text" id="addtext"></input>
+				<button
+					id="col-adder"
+					hx-post="/people/col"
+					hx-target="thead > tr"
+					hx-swap="beforeend"
+					hx-include="[id='addtext']"
+					//onclick="this.parentElement.querySelector('input').select()"
+				>Add Col</button>
+				<button
+					id="row-adder"
+					hx-post="/people/row"
+					hx-target="tbody"
+					hx-swap="beforeend"
+				>Add Row</button>
+				<button id="table-saver">Save</button>
 			</span>
 			<table> <thead>
 				<tr>

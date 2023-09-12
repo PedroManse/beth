@@ -17,14 +17,24 @@ function AddCol() {
 	document.querySelector("input").select()
 }
 
+function RemCol(target) {
+	const targetIndex = Array.from(document.querySelectorAll("thead > tr > th")).indexOf(target)
+	document.querySelectorAll("tbody > tr")
+		.forEach(row=>{
+			Array.from(row.children)
+				.filter((_, index)=>index==targetIndex)
+				.forEach(e=>e.remove())
+		})
+}
+
 const colCount = ()=>document.querySelector("thead > tr").childElementCount;
 let lastColCount = undefined;
 window.onload = () => {
 	htmx.on("htmx:afterRequest", (event)=>{
-		if (event.target != document.getElementById("col-adder")) {
-			return
+		if (event.target == document.getElementById("col-adder")) {
+			AddCol();
 		}
-		AddCol();
+		lastColCount = colCount();
 	})
 	lastColCount = colCount();
 	document.getElementById("table-saver").addEventListener("click", ()=>{
