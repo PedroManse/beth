@@ -4,6 +4,7 @@ import { html } from "@elysiajs/html";
 import { staticPlugin } from '@elysiajs/static';
 import * as elements from "typed-html";
 import {assert, log} from "console";
+import { KeyObject } from "crypto";
 
 const BASE_HTML = ({ children }: elements.Children ) => `
 <!DOCTYPE html>
@@ -24,7 +25,7 @@ const server = new Elysia()
 	}));
 
 
-// TODO app
+// TODO
 (()=>{
 
 const TODO_HTML = (todo:Todo, index:number) => (
@@ -94,12 +95,12 @@ server
 	
 })();
 
-// People app
+// People
 await (async ()=>{
-interface StringMap { [key: string]: string; }
+
 type Person = {
 	id: number,
-	info: StringMap,
+	info: { [key: string]: string; },
 }
 let FILE_MIRROR = {
 	cols: [],
@@ -227,6 +228,51 @@ server
 
 })();
 
+// Easy Clip Board
+(()=>{
+const ECB_DB:{ [key: string]: string; } = {}
+
+server
+	.get("/ecb", ({ html })=>html(
+	<BASE_HTML>
+		<form method="POST" action="/ecb">
+			<label for="ishtml">Parse as HTML:</label>
+			<input type="checkbox" id="ishtml" name="ishtml"></input>
+			<br/>
+			<label for="name">Note Name:</label>
+			<input id="name" name="name"></input>
+			<br/>
+			<label for="text">Note Content:</label>
+			<br/>
+			<textarea required="true" id="text" name="text"></textarea>
+			<br/>
+			<button>Create Note</button>
+		</form>
+	</BASE_HTML>
+	))
+	.post("/ecb", ({ body, set })=>{
+		const noteName = body.name??Bun.hash(body.text).toString()
+		if (body.ishtml!=="on") {
+			body.text = "<code>"+Bun.escapeHTML(body.text)+"</code>"
+		}
+		ECB_DB[noteName] = body.text
+		set.redirect = "/ecb/"+noteName
+	}, {
+		body: t.Object({
+			ishtml: t.Optional(t.String()),
+			name: t.Optional(t.String()),
+			text: t.String(),
+		})
+	})
+	.get("/ecb/:id", ({ params })=>{
+		return ECB_DB[params.id]
+	}, {
+		params: t.Object({
+			id: t.String()
+		})
+	})
+
+})();
 server.get("/", ()=>"Hi!")
 
 server.listen(8080);
