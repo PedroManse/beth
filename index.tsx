@@ -1,9 +1,10 @@
-import { Elysia, t } from "elysia";
+import { Elysia, t, ws } from "elysia";
 import { Database } from 'bun:sqlite';
 import { html } from "@elysiajs/html";
-import { staticPlugin } from '@elysiajs/static';
+import { staticPlugin } from "@elysiajs/static";
+import { cors } from "@elysiajs/cors";
 import * as elements from "typed-html";
-import {assert, log} from "console";
+import { assert, log } from "console";
 import { KeyObject } from "crypto";
 
 const BASE_HTML = ({ children }: elements.Children ) => `
@@ -18,8 +19,14 @@ const BASE_HTML = ({ children }: elements.Children ) => `
 	${children}
 `
 
-const server = new Elysia()
+const server = new Elysia({
+	serve:{
+		hostname:"192.168.15.117"
+	}
+})
+	.use(cors())
 	.use(html())
+	.use(ws())
 	.use(staticPlugin({
 		prefix: "/files", assets: "./files",
 	}));
@@ -32,7 +39,7 @@ const TODO_HTML = (todo:Todo, index:number) => (
 	<li id={"todo-"+todo.index.toString()}>
 		<span>
 			<p style="display: inline-block">{todo.text}</p>
-			<button 
+			<button
 				hx-target={"#todo-"+todo.index.toString()}
 				hx-post="/todo/remove"
 				hx-vals="js:{'index': event.target.parentElement.parentElement.id.substring(5)}"
@@ -92,7 +99,7 @@ server
 			text: t.String(),
 		})
 	})
-	
+
 })();
 
 // People
@@ -271,9 +278,76 @@ server
 			id: t.String()
 		})
 	})
-
 })();
-server.get("/", ()=>"Hi!")
+
+// WebSocket chat
+(()=>{
+let LastMsgId = 0;
+type MSG = {
+	user: number,
+	body: string,
+}
+const users:string[] = [];
+const MSG_LOG:MSG[] = [];
+let connections = 0;
+//`session id`:
+//TODO: value of hash(username+time) as validation 'key'
+server
+	.get("/chat/latest", ()=>(
+		{ lastMsgId:LastMsgId }
+	))
+	.get("/chat/:id", ({ params })=>{
+		if (parseInt(params.id) >= MSG_LOG.length) {
+			return
+		}
+		const msg = MSG_LOG[parseInt(params.id)]
+		return {
+			body: msg.body, 
+			user: users[msg.user],
+		}
+	}, {
+		params: t.Object({
+			id: t.String()
+		})
+	})
+	.post("/chat", ({ body })=>{
+		const name = JSON.parse(body).user;
+		users.push(name)
+		console.log(users, connections)
+		return (connections++).toString() // session id
+	})
+	.post("/chat/send", ({ body })=>{
+		const msg = JSON.parse(body);
+		log(msg)
+		LastMsgId++;
+		MSG_LOG.push(msg)
+		log(MSG_LOG)
+		return ""
+	})
+	.get("/bunchat", ({ html })=>html(
+	<BASE_HTML>
+		<body>
+			<script src="/files/ws.js"></script>
+			<h1>Bun Chat</h1>
+			<button id="new" type="button">Connect</button>
+			<button id="send" type="button">Send</button>
+			<button id="check" type="button">CheckUp</button>
+		</body>
+	</BASE_HTML>
+	))
+})();
+
+server.get("/", ({ html })=>html((
+<BASE_HTML>
+<body>
+	<h1>Welcome to Owsei's server!</h1>
+	<a href="/people">People App</a><br/>
+	<a href="/todo">Todo App</a><br/>
+	<a href="/ecb">ECB App</a><br/>
+	<a href="/chat">Chat App</a><br/>
+</body>
+</BASE_HTML>
+)))
 
 server.listen(8080);
-log("BETH stack serving at ::8080")
+log(`🦊 Elysia is running at ${server.server?.hostname}:${server.server?.port}`)
