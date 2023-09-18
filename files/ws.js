@@ -1,36 +1,36 @@
 "use strict";
+const id = document.getElementById.bind(document)
+
+let socket = null;
+let userId = null;
+
+function Connect(userName) {
+	socket = new WebSocket("ws://localhost:3030");
+
+	//socket.addEventListener("open", (event) => {;
+	//	socket.send(userName);
+	//});
+
+	socket.addEventListener("message", (event) => {
+		if (userId === null) {
+			console.log(`My id is ${event.data}`)
+			userId = parseInt(event.data)
+			socket.send(`{id: ${userId}, name:userName}`)
+		} else {
+			console.log("Message from server ", event.data);
+		}
+	});
+}
+
+
 window.onload = () => {
-	var MyId = null;
-	var LastMsgId = -1;
-	document.getElementById("new").addEventListener("click", ({ target })=>{
-		fetch("/chat", {
-			method:"POST",
-			body: JSON.stringify({user:"Manse"})
-		}).then(a=>{
-			a.text().then( id=>{
-				MyId = parseInt(id)
-				console.log(`Connected with session id ${MyId}`)
-			} )
-		})
-		target.remove()
+	id("dologin").addEventListener("click", ()=>{
+		Connect(id("username").value)
 	})
-	const send = document.getElementById("send")
-	send.addEventListener("click", ()=>{
-		fetch("/chat/send", {
-			method:"POST",
-			body: JSON.stringify({
-				user:MyId,
-				body: "Hello!",
-			})
-		}).then(()=>{
-			console.log("Sent!")
-		})
-	})
-	const check = document.getElementById("check")
-	check.addEventListener("click", ()=>{
-		fetch("/chat/latest")
-			.then(a=>a.json())
-			.then(console.log)
+
+	id("send").addEventListener("click", ()=>{
+		console.log("SENT!", id("msg").value)
+		socket.send(id("msg").value)
 	})
 }
 

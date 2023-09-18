@@ -6,6 +6,7 @@ import { cors } from "@elysiajs/cors";
 import * as elements from "typed-html";
 import { assert, log } from "console";
 import { KeyObject } from "crypto";
+import { WebSocketServer } from 'ws';
 
 const BASE_HTML = ({ children }: elements.Children ) => `
 <!DOCTYPE html>
@@ -21,7 +22,7 @@ const BASE_HTML = ({ children }: elements.Children ) => `
 
 const server = new Elysia({
 	serve:{
-		hostname:"192.168.15.117"
+		hostname:"127.0.0.1"
 	}
 })
 	.use(cors())
@@ -233,7 +234,7 @@ server
 		)
 	})
 
-})();
+});
 
 // Easy Clip Board
 (()=>{
@@ -282,56 +283,49 @@ server
 
 // WebSocket chat
 (()=>{
-let LastMsgId = 0;
-type MSG = {
-	user: number,
-	body: string,
+const wss = new WebSocketServer({ port: 3030 });
+type User = {
+	id: number,
+	send: (string)=>void, // ws stream
+	name: string,
 }
-const users:string[] = [];
-const MSG_LOG:MSG[] = [];
-let connections = 0;
-//`session id`:
-//TODO: value of hash(username+time) as validation 'key'
-server
-	.get("/chat/latest", ()=>(
-		{ lastMsgId:LastMsgId }
-	))
-	.get("/chat/:id", ({ params })=>{
-		if (parseInt(params.id) >= MSG_LOG.length) {
-			return
+const users:User = [];
+
+function broadcast(message, senderId) {
+	users.forEach(({id, send})=>{
+		if (id != senderId) {
+			send(message)
 		}
-		const msg = MSG_LOG[parseInt(params.id)]
-		return {
-			body: msg.body, 
-			user: users[msg.user],
-		}
-	}, {
-		params: t.Object({
-			id: t.String()
-		})
 	})
-	.post("/chat", ({ body })=>{
-		const name = JSON.parse(body).user;
-		users.push(name)
-		console.log(users, connections)
-		return (connections++).toString() // session id
-	})
-	.post("/chat/send", ({ body })=>{
-		const msg = JSON.parse(body);
-		log(msg)
-		LastMsgId++;
-		MSG_LOG.push(msg)
-		log(MSG_LOG)
-		return ""
-	})
-	.get("/bunchat", ({ html })=>html(
+}
+
+wss.on('connection', (ws, req, client) => {
+  ws.on('error', console.error);
+
+  ws.on('message', function message(data) {
+		log(JSON.parse(data));
+    log('received: %s', data);
+  });
+
+	users.push({id:users.length, send: ws.send.bind(ws), name:"" })
+  ws.send((users.length-1).toString());
+
+});
+
+server.get("/bunchat", ({ html })=>html(
 	<BASE_HTML>
 		<body>
 			<script src="/files/ws.js"></script>
 			<h1>Bun Chat</h1>
-			<button id="new" type="button">Connect</button>
-			<button id="send" type="button">Send</button>
-			<button id="check" type="button">CheckUp</button>
+			<div id="login">
+				<input  id="username" type="text" />
+				<button id="dologin" type="button">Login</button>
+			</div>
+			<div id="chatapp">
+				<div id="chatlog"> </div>
+				<input  id="msg" type="text" />
+				<button id="send" type="button">Send</button>
+			</div>
 		</body>
 	</BASE_HTML>
 	))
@@ -344,7 +338,7 @@ server.get("/", ({ html })=>html((
 	<a href="/people">People App</a><br/>
 	<a href="/todo">Todo App</a><br/>
 	<a href="/ecb">ECB App</a><br/>
-	<a href="/chat">Chat App</a><br/>
+	<a href="/bunchat">Chat App</a><br/>
 </body>
 </BASE_HTML>
 )))
