@@ -8,6 +8,37 @@ import { assert, log } from "console";
 import { KeyObject } from "crypto";
 import { WebSocketServer } from 'ws';
 
+const ANSI = {
+	NC	    	:"\x1b[39m",
+	Black	  	:"\x1b[30m",
+	Red	    	:"\x1b[31m",
+	Green	  	:"\x1b[32m",
+	Yellow		:"\x1b[33m",
+	Blue	  	:"\x1b[34m",
+	Magenta		:"\x1b[35m",
+	Cyan	  	:"\x1b[36m",
+	White	  	:"\x1b[37m",
+
+	BkNC	    :"\x1b[49m",
+	BkBlack	  :"\x1b[40m",
+	BkRed	    :"\x1b[41m",
+	BkGreen	  :"\x1b[42m",
+	BkYellow	:"\x1b[43m",
+	BkBlue	  :"\x1b[44m",
+	BkMagenta	:"\x1b[45m",
+	BkCyan	  :"\x1b[46m",
+	BkWhite	  :"\x1b[47m",
+
+	Clear     : "\x1b[0m",
+	Bold      : "\x1b[1m",
+	Dim       : "\x1b[2m",
+	Italic    : "\x1b[3m",
+	Underline : "\x1b[4m",
+	Blink     : "\x1b[5m",
+	Reverse   : "\x1b[7m",// reverses FG/BK colors,
+	Hidden    : "\x1b[8m",
+}
+
 const BASE_HTML = ({ children }: elements.Children ) => `
 <!DOCTYPE html>
 
@@ -22,7 +53,7 @@ const BASE_HTML = ({ children }: elements.Children ) => `
 
 const server = new Elysia({
 	serve:{
-		hostname:"127.0.0.1"
+		hostname:"192.168.15.117"
 	}
 })
 	.use(cors())
@@ -234,7 +265,7 @@ server
 		)
 	})
 
-});
+})();
 
 // Easy Clip Board
 (()=>{
@@ -284,37 +315,131 @@ server
 // WebSocket chat
 (()=>{
 const wss = new WebSocketServer({ port: 3030 });
+
+//TODO: could not keep unx is there was a boolen "markedToDie"
+// : a keep-alive event would set that to false
+//
+// : in the 15s interval, if markedToDie was false
+// : : it would set that to true
+// : if markedToDie was already true
+// : : the connection would be closed
+//
+// : or keep a missedClocks int, and count it down on each clock
+// : and the server timeout would be n*clock interval, instead of just 2clock
+// : and every keep-alive event would reset the missedClocks
+
 type User = {
 	id: number,
 	send: (string)=>void, // ws stream
 	name: string,
+	lastInteraction:number, // unix
+	close: (string)=>void,
 }
 const users:User = [];
 
-function broadcast(message, senderId) {
-	users.forEach(({id, send})=>{
-		if (id != senderId) {
-			send(message)
-		}
-	})
+function userStr(id) {
+	return `${ANSI.Blue+ANSI.BkWhite}[${id}]${ANSI.Clear} "${users[id].name}"`
+}
+
+function serverBroadcast(msg) {
+	for (let i = 0 ;i < users.length; i++) {
+		users[i]?.send(JSON.stringify({
+			action: "server-msg",
+			msg: msg,
+		}))
+	}
+}
+
+function broadcast(id, msg) {
+	for (let i = 0 ;i < users.length; i++) {
+		users[i]?.send(JSON.stringify({
+			action: "user-msg",
+			from: users[id].name,
+			msg: msg,
+		}))
+	}
 }
 
 wss.on('connection', (ws, req, client) => {
   ws.on('error', console.error);
 
-  ws.on('message', function message(data) {
-		log(JSON.parse(data));
-    log('received: %s', data);
+	const id = users.length
+	const hash = Bun.hash(id.toString()+Date.now().toString()).toString()
+
+	users.push({
+		id:id,
+		hash:hash,
+		send: ws.send.bind(ws),
+		name:"",
+		lastInteraction: Date.now().valueOf(),
+		close: ws.close.bind(ws),
+	})
+
+  ws.send(JSON.stringify({
+		id, hash
+	}));
+
+  ws.on('message', (data) => {
+		const info = JSON.parse(data);
+		if ((info.action && info.id) === undefined) {
+			ws.close(400, "action or id not provided")
+			return
+		}
+
+		switch(info.action) {
+		case "set-username":
+			users[info.id].name = info.name
+			//log(`${userStr(info.id)} is now properly logged in`)
+			serverBroadcast(`user ${info.name} has connected!`)
+			break;
+
+		case "message":
+			if (info.hash !== users[info.id].hash) {
+				ws.close(401, "wrong chat-hash")
+				return
+			}
+			broadcast(info.id, info.msg)
+			log(`${userStr(info.id)} sent message ${info.msg}`)
+			break;
+
+		case "keep-alive":
+			users[info.id].lastInteraction = Date.now().valueOf()
+			//log(`${userStr(info.id)} has latency of ${users[info.id].lastInteraction-info.unx}ms`)
+			break;
+
+		default:
+			ws.close(400, "no such action")
+			log(`${userStr(info.id)}`)
+			return;
+		}
   });
 
-	users.push({id:users.length, send: ws.send.bind(ws), name:"" })
-  ws.send((users.length-1).toString());
 
 });
+
+const clockIndicator = `${ANSI.Black+ANSI.BkWhite}[C]${ANSI.Clear}`
+setInterval(()=>{
+	const unx = Date.now().valueOf()
+	for (let i = 0 ;i < users.length; i++) {
+		if (!users[i]) continue;
+
+		// 1m late, should kill
+		if (unx-users[i].lastInteraction > 60_000) {
+			log(`${clockIndicator} ${userStr(i)} ${ANSI.Red}TimedOut${ANSI.Clear}`)
+			serverBroadcast(`user ${users[i].name} has disconnected!`)
+			users[i].close(408, "Timeout")
+			delete users[i]; // don't remove slot, tho
+			continue;
+		}
+
+		log(`${clockIndicator} has been ${unx-users[i].lastInteraction}ms since ${userStr(i)} has sent a keep-alive`)
+	}
+}, 15000)
 
 server.get("/bunchat", ({ html })=>html(
 	<BASE_HTML>
 		<body>
+			<link rel="stylesheet" type="text/css" href="/files/bunchat.css"></link>
 			<script src="/files/ws.js"></script>
 			<h1>Bun Chat</h1>
 			<div id="login">

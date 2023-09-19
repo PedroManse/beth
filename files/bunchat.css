@@ -1,0 +1,25 @@
+div.chat-msg > *, div.server-msg > * {
+	margin: 0;
+}
+
+div.chat-msg > h3 {
+	display: inline-block;
+}
+
+div.chat-msg > p:before {
+	content: ":  ";
+}
+
+div.chat-msg > p {
+	display: inline-block;
+}
+
+div.chat-msg {
+	height: fit-content;
+}
+
+div.server-msg > p {
+	font-style: italic;
+	color: gray;
+}
+
