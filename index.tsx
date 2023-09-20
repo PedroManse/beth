@@ -9,34 +9,16 @@ import { KeyObject } from "crypto";
 import { WebSocketServer } from 'ws';
 
 const ANSI = {
-	NC	    	:"\x1b[39m",
-	Black	  	:"\x1b[30m",
-	Red	    	:"\x1b[31m",
-	Green	  	:"\x1b[32m",
-	Yellow		:"\x1b[33m",
-	Blue	  	:"\x1b[34m",
-	Magenta		:"\x1b[35m",
-	Cyan	  	:"\x1b[36m",
-	White	  	:"\x1b[37m",
-
-	BkNC	    :"\x1b[49m",
-	BkBlack	  :"\x1b[40m",
-	BkRed	    :"\x1b[41m",
-	BkGreen	  :"\x1b[42m",
-	BkYellow	:"\x1b[43m",
-	BkBlue	  :"\x1b[44m",
-	BkMagenta	:"\x1b[45m",
-	BkCyan	  :"\x1b[46m",
-	BkWhite	  :"\x1b[47m",
-
-	Clear     : "\x1b[0m",
-	Bold      : "\x1b[1m",
-	Dim       : "\x1b[2m",
-	Italic    : "\x1b[3m",
-	Underline : "\x1b[4m",
-	Blink     : "\x1b[5m",
-	Reverse   : "\x1b[7m",// reverses FG/BK colors,
-	Hidden    : "\x1b[8m",
+	NC       :"\x1b[39m", Black   :"\x1b[30m", Red    :"\x1b[31m",
+	Green    :"\x1b[32m", Yellow  :"\x1b[33m", Blue   :"\x1b[34m",
+	Magenta  :"\x1b[35m", Cyan    :"\x1b[36m", White  :"\x1b[37m",
+	BkNC     :"\x1b[49m", BkBlack :"\x1b[40m", BkRed  :"\x1b[41m",
+	BkGreen  :"\x1b[42m", BkYellow:"\x1b[43m", BkBlue :"\x1b[44m",
+	BkMagenta:"\x1b[45m", BkCyan  :"\x1b[46m", BkWhite:"\x1b[47m",
+	Clear    : "\x1b[0m", Bold    : "\x1b[1m",
+	Dim      : "\x1b[2m", Italic  : "\x1b[3m",
+	Underline: "\x1b[4m", Blink   : "\x1b[5m",
+	Reverse  : "\x1b[7m", Hidden  : "\x1b[8m",
 }
 
 const BASE_HTML = ({ children }: elements.Children ) => `
@@ -316,21 +298,9 @@ server
 (()=>{
 const wss = new WebSocketServer({ port: 3030 });
 
-//TODO: could not keep unx is there was a boolen "markedToDie"
-// : a keep-alive event would set that to false
-//
-// : in the 15s interval, if markedToDie was false
-// : : it would set that to true
-// : if markedToDie was already true
-// : : the connection would be closed
-//
-// : or keep a missedClocks int, and count it down on each clock
-// : and the server timeout would be n*clock interval, instead of just 2clock
-// : and every keep-alive event would reset the missedClocks
-
 type User = {
 	id: number,
-	send: (string)=>void, // ws stream
+	send: (string)=>void, // binded ws.send
 	name: string,
 	lastInteraction:number, // unix
 	close: (string)=>void,
@@ -343,10 +313,11 @@ function userStr(id) {
 
 function serverBroadcast(msg) {
 	for (let i = 0 ;i < users.length; i++) {
-		users[i]?.send(JSON.stringify({
-			action: "server-msg",
-			msg: msg,
-		}))
+		users[i] && message(users[i], "server-msg", {msg})
+		//users[i]?.send(JSON.stringify({
+		//	action: "server-msg",
+		//	msg: msg,
+		//}))
 	}
 }
 
@@ -360,11 +331,16 @@ function broadcast(id, msg) {
 	}
 }
 
+function message(ws, action, obj={}) {
+	obj["action"]=action
+	ws.send(JSON.stringify(obj))
+}
+
 wss.on('connection', (ws, req, client) => {
-  ws.on('error', console.error);
+	ws.on('error', console.error);
 
 	const id = users.length
-	const hash = Bun.hash(id.toString()+Date.now().toString()).toString()
+	const hash = ~~(Math.random()*1_000_000)
 
 	users.push({
 		id:id,
@@ -375,11 +351,11 @@ wss.on('connection', (ws, req, client) => {
 		close: ws.close.bind(ws),
 	})
 
-  ws.send(JSON.stringify({
+	ws.send(JSON.stringify({
 		id, hash
 	}));
 
-  ws.on('message', (data) => {
+	ws.on('message', (data) => {
 		const info = JSON.parse(data);
 		if ((info.action && info.id) === undefined) {
 			ws.close(400, "action or id not provided")
@@ -389,32 +365,47 @@ wss.on('connection', (ws, req, client) => {
 		switch(info.action) {
 		case "set-username":
 			users[info.id].name = info.name
-			//log(`${userStr(info.id)} is now properly logged in`)
 			serverBroadcast(`user ${info.name} has connected!`)
 			break;
 
 		case "message":
 			if (info.hash !== users[info.id].hash) {
-				ws.close(401, "wrong chat-hash")
+				message(ws, "server-warning", {msg:"wrong id/hash"})
+				return
+			}
+			if (typeof info.msg !== "string") {
+				message(ws, "server-warning", {msg:"missing msg"})
+				return
+			}
+			info.msg = info.msg.trim()
+			if (info.msg.length === 0) {
+				message(ws, "server-warning", {msg:"zero-len message"})
 				return
 			}
 			broadcast(info.id, info.msg)
-			log(`${userStr(info.id)} sent message ${info.msg}`)
+			//log(`${userStr(info.id)} sent message ${info.msg}`)
 			break;
 
 		case "keep-alive":
+			if ( !users[info.id]?.lastInteraction ) {
+				log(users, info.id)
+				return
+			}
 			users[info.id].lastInteraction = Date.now().valueOf()
-			//log(`${userStr(info.id)} has latency of ${users[info.id].lastInteraction-info.unx}ms`)
+			break;
+
+		case "disconnect":
+			log(`${userStr(info.id)} disconnected`)
+			serverBroadcast(`${users[info.id].name} has disconnected!`)
+			delete users[info.id]; // don't remove slot, tho
 			break;
 
 		default:
 			ws.close(400, "no such action")
-			log(`${userStr(info.id)}`)
+			log(`no such action ${info.action} :: ${userStr(info.id)}`)
 			return;
 		}
-  });
-
-
+	});
 });
 
 const clockIndicator = `${ANSI.Black+ANSI.BkWhite}[C]${ANSI.Clear}`
@@ -425,14 +416,12 @@ setInterval(()=>{
 
 		// 1m late, should kill
 		if (unx-users[i].lastInteraction > 60_000) {
-			log(`${clockIndicator} ${userStr(i)} ${ANSI.Red}TimedOut${ANSI.Clear}`)
-			serverBroadcast(`user ${users[i].name} has disconnected!`)
+			//log(`${clockIndicator} ${userStr(i)} ${ANSI.Red}TimedOut${ANSI.Clear}`)
+			serverBroadcast(`user ${users[i].name} has timedOut!`)
 			users[i].close(408, "Timeout")
 			delete users[i]; // don't remove slot, tho
 			continue;
 		}
-
-		log(`${clockIndicator} has been ${unx-users[i].lastInteraction}ms since ${userStr(i)} has sent a keep-alive`)
 	}
 }, 15000)
 
@@ -441,15 +430,19 @@ server.get("/bunchat", ({ html })=>html(
 		<body>
 			<link rel="stylesheet" type="text/css" href="/files/bunchat.css"></link>
 			<script src="/files/ws.js"></script>
-			<h1>Bun Chat</h1>
+			<script src="/files/bunchat.js"></script>
+			<div id="header">
+				<h1>Bun Chat</h1>
+			</div>
 			<div id="login">
 				<input  id="username" type="text" />
 				<button id="dologin" type="button">Login</button>
 			</div>
-			<div id="chatapp">
+			<div class="invisible" id="chatapp">
 				<div id="chatlog"> </div>
-				<input  id="msg" type="text" />
-				<button id="send" type="button">Send</button>
+				<span id="msgline">
+					<input id="msg" type="text" />
+				</span>
 			</div>
 		</body>
 	</BASE_HTML>
