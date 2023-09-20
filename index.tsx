@@ -297,6 +297,7 @@ server
 // WebSocket chat
 (()=>{
 const wss = new WebSocketServer({ port: 3030 });
+const defaultPresence = 4; // can miss up to 4 keep-alive ticks
 
 type User = {
 	id: number,
@@ -347,7 +348,7 @@ wss.on('connection', (ws, req, client) => {
 		hash:hash,
 		send: ws.send.bind(ws),
 		name:"",
-		lastInteraction: Date.now().valueOf(),
+		presence: defaultPresence,
 		close: ws.close.bind(ws),
 	})
 
@@ -377,7 +378,7 @@ wss.on('connection', (ws, req, client) => {
 				message(ws, "server-warning", {msg:"missing msg"})
 				return
 			}
-			info.msg = info.msg.trim()
+			info.msg = Bun.escapeHTML(info.msg.trim())
 			if (info.msg.length === 0) {
 				message(ws, "server-warning", {msg:"zero-len message"})
 				return
@@ -387,15 +388,14 @@ wss.on('connection', (ws, req, client) => {
 			break;
 
 		case "keep-alive":
-			if ( !users[info.id]?.lastInteraction ) {
+			if ( !users[info.id]?.presence ) {
 				log(users, info.id)
 				return
 			}
-			users[info.id].lastInteraction = Date.now().valueOf()
+			users[info.id].presence = defaultPresence
 			break;
 
 		case "disconnect":
-			log(`${userStr(info.id)} disconnected`)
 			serverBroadcast(`${users[info.id].name} has disconnected!`)
 			delete users[info.id]; // don't remove slot, tho
 			break;
@@ -414,13 +414,11 @@ setInterval(()=>{
 	for (let i = 0 ;i < users.length; i++) {
 		if (!users[i]) continue;
 
-		// 1m late, should kill
-		if (unx-users[i].lastInteraction > 60_000) {
-			//log(`${clockIndicator} ${userStr(i)} ${ANSI.Red}TimedOut${ANSI.Clear}`)
+		// missed 4 ticks, should kill
+		if (--users[i].presence === 0) {
 			serverBroadcast(`user ${users[i].name} has timedOut!`)
-			users[i].close(408, "Timeout")
+			users[i].close(408, "timeout")
 			delete users[i]; // don't remove slot, tho
-			continue;
 		}
 	}
 }, 15000)

@@ -1,4 +1,10 @@
-div.chat-msg > *, div.server-msg > * {
+div.chat-msg > *{
+	margin: 0;
+}
+div.chat-msg > * > * {
+	margin: 0;
+}
+div.server-msg > * {
 	margin: 0;
 }
 
