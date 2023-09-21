@@ -21,16 +21,16 @@ class WSConnection {
 		}, keepAliveInterval)
 
 		this.socket.addEventListener("message", (event) => {
-			if (this.userId === null) {
-				const info = JSON.parse(event.data);
-				this.userId = info.id
-				this.userHash = info.hash
+			const info = JSON.parse(event.data);
+			if (info.action === "set-server-info") {
+				this.userId = info.id;
+				this.userHash = info.hash;
 
 				this.send( "set-username", {
 					name: userName,
-				})
+				});
 			} else {
-				onmsg(JSON.parse(event.data));
+				onmsg(info);
 			}
 		});
 	}

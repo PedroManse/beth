@@ -2,7 +2,6 @@ import { Elysia, t, ws } from "elysia";
 import { Database } from 'bun:sqlite';
 import { html } from "@elysiajs/html";
 import { staticPlugin } from "@elysiajs/static";
-import { cors } from "@elysiajs/cors";
 import * as elements from "typed-html";
 import { assert, log } from "console";
 import { KeyObject } from "crypto";
@@ -19,7 +18,7 @@ const ANSI = {
 	Dim      : "\x1b[2m", Italic  : "\x1b[3m",
 	Underline: "\x1b[4m", Blink   : "\x1b[5m",
 	Reverse  : "\x1b[7m", Hidden  : "\x1b[8m",
-}
+};
 
 const BASE_HTML = ({ children }: elements.Children ) => `
 <!DOCTYPE html>
@@ -31,16 +30,14 @@ const BASE_HTML = ({ children }: elements.Children ) => `
 		<script src="https://unpkg.com/htmx.org@1.9.5/dist/htmx.min.js"></script>
 	</head>
 	${children}
-`
+`;
 
 const server = new Elysia({
 	serve:{
 		hostname:"192.168.15.117"
 	}
 })
-	.use(cors())
 	.use(html())
-	.use(ws())
 	.use(staticPlugin({
 		prefix: "/files", assets: "./files",
 	}));
@@ -315,100 +312,90 @@ function userStr(id) {
 function serverBroadcast(msg) {
 	for (let i = 0 ;i < users.length; i++) {
 		users[i] && message(users[i], "server-msg", {msg})
-		//users[i]?.send(JSON.stringify({
-		//	action: "server-msg",
-		//	msg: msg,
-		//}))
 	}
 }
 
 function broadcast(id, msg) {
 	for (let i = 0 ;i < users.length; i++) {
-		users[i]?.send(JSON.stringify({
-			action: "user-msg",
-			from: users[id].name,
-			msg: msg,
-		}))
+		users[i] && message(users[i], "user-msg", {
+			from: users[id].name, msg
+		})
 	}
 }
 
 function message(ws, action, obj={}) {
-	obj["action"]=action
-	ws.send(JSON.stringify(obj))
+	obj["action"]=action;
+	ws.send(JSON.stringify(obj));
 }
 
 wss.on('connection', (ws, req, client) => {
 	ws.on('error', console.error);
 
-	const id = users.length
-	const hash = ~~(Math.random()*1_000_000)
+	const id = users.length;
+	const hash = ~~(Math.random()*1_000_000);
 
 	users.push({
-		id:id,
-		hash:hash,
+		id, hash,
 		send: ws.send.bind(ws),
 		name:"",
 		presence: defaultPresence,
 		close: ws.close.bind(ws),
-	})
+	});
 
-	ws.send(JSON.stringify({
-		id, hash
-	}));
+	message(ws, "set-server-info", { id, hash });
 
 	ws.on('message', (data) => {
 		const info = JSON.parse(data);
 		if ((info.action && info.id) === undefined) {
-			ws.close(400, "action or id not provided")
-			return
+			ws.close(400, "action or id not provided");
+			return;
 		}
 
 		switch(info.action) {
 		case "set-username":
-			users[info.id].name = info.name
-			serverBroadcast(`user ${info.name} has connected!`)
+			users[info.id].name = info.name;
+			serverBroadcast(`user ${info.name} has connected!`);
 			break;
 
 		case "message":
 			if (info.hash !== users[info.id].hash) {
-				message(ws, "server-warning", {msg:"wrong id/hash"})
-				return
+				message(ws, "server-warning", {msg:"wrong id/hash"});
+				return;
 			}
 			if (typeof info.msg !== "string") {
-				message(ws, "server-warning", {msg:"missing msg"})
-				return
+				message(ws, "server-warning", {msg:"missing msg"});
+				return;
 			}
-			info.msg = Bun.escapeHTML(info.msg.trim())
+			info.msg = Bun.escapeHTML(info.msg.trim());
 			if (info.msg.length === 0) {
-				message(ws, "server-warning", {msg:"zero-len message"})
-				return
+				message(ws, "server-warning", {msg:"zero-len message"});
+				return;
 			}
-			broadcast(info.id, info.msg)
-			//log(`${userStr(info.id)} sent message ${info.msg}`)
+			broadcast(info.id, info.msg);
 			break;
 
 		case "keep-alive":
 			if ( !users[info.id]?.presence ) {
-				log(users, info.id)
-				return
+				log(users, info.id);
+				return;
 			}
-			users[info.id].presence = defaultPresence
+			users[info.id].presence = defaultPresence;
 			break;
 
 		case "disconnect":
-			serverBroadcast(`${users[info.id].name} has disconnected!`)
+			serverBroadcast(`${users[info.id].name} has disconnected!`);
 			delete users[info.id]; // don't remove slot, tho
 			break;
 
 		default:
-			ws.close(400, "no such action")
-			log(`no such action ${info.action} :: ${userStr(info.id)}`)
+			ws.close(400, "no such action");
+			log(`no such action ${info.action} :: ${userStr(info.id)}`);
 			return;
 		}
 	});
 });
 
-const clockIndicator = `${ANSI.Black+ANSI.BkWhite}[C]${ANSI.Clear}`
+const clockIndicator = `${ANSI.Black+ANSI.BkWhite}[C]${ANSI.Clear}`;
 setInterval(()=>{
 	const unx = Date.now().valueOf()
 	for (let i = 0 ;i < users.length; i++) {
@@ -421,7 +408,7 @@ setInterval(()=>{
 			delete users[i]; // don't remove slot, tho
 		}
 	}
-}, 15000)
+}, 15000);
 
 server.get("/bunchat", ({ html })=>html(
 	<BASE_HTML>
@@ -444,20 +431,21 @@ server.get("/bunchat", ({ html })=>html(
 			</div>
 		</body>
 	</BASE_HTML>
-	))
+	));
 })();
 
-server.get("/", ({ html })=>html((
+server.get("/", ({ html })=>html(
 <BASE_HTML>
-<body>
-	<h1>Welcome to Owsei's server!</h1>
-	<a href="/people">People App</a><br/>
-	<a href="/todo">Todo App</a><br/>
-	<a href="/ecb">ECB App</a><br/>
-	<a href="/bunchat">Chat App</a><br/>
-</body>
+	<body>
+		<h1>Welcome to Owsei's server!</h1>
+		<a href="/people">People App</a><br/>
+		<a href="/todo">Todo App</a><br/>
+		<a href="/ecb">ECB App</a><br/>
+		<a href="/bunchat">Chat App</a><br/>
+	</body>
 </BASE_HTML>
-)))
+));
 
 server.listen(8080);
-log(`🦊 Elysia is running at ${server.server?.hostname}:${server.server?.port}`)
+log(`🦊 Elysia is running at ${server.server?.hostname}:${server.server?.port}`);
+
