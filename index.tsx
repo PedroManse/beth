@@ -1,10 +1,9 @@
-import { Elysia, t, ws } from "elysia";
-import { Database } from 'bun:sqlite';
+import { Elysia, t } from "elysia";
+//import { Database } from 'bun:sqlite';
 import { html } from "@elysiajs/html";
 import { staticPlugin } from "@elysiajs/static";
 import * as elements from "typed-html";
 import { assert, log } from "console";
-import { KeyObject } from "crypto";
 import { WebSocketServer } from 'ws';
 
 const ANSI = {
