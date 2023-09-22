@@ -1,10 +1,11 @@
 import { Elysia, t } from "elysia";
-//import { Database } from 'bun:sqlite';
+import { Database } from 'bun:sqlite';
 import { html } from "@elysiajs/html";
 import { staticPlugin } from "@elysiajs/static";
 import * as elements from "typed-html";
 import { assert, log } from "console";
 import { WebSocketServer } from 'ws';
+import { cookie } from '@elysiajs/cookie'
 
 const ANSI = {
 	NC       :"\x1b[39m", Black   :"\x1b[30m", Red    :"\x1b[31m",
@@ -37,6 +38,7 @@ const server = new Elysia({
 	}
 })
 	.use(html())
+	.use(cookie())
 	.use(staticPlugin({
 		prefix: "/files", assets: "./files",
 	}));
@@ -433,17 +435,111 @@ server.get("/bunchat", ({ html })=>html(
 	));
 })();
 
-server.get("/", ({ html })=>html(
+// account system
+(()=>{
+
+type account = {
+	name: string,
+	permissions: number,
+	passhash: string,
+}
+
+const db = new Database("./accounts.db");
+db.query(`CREATE TABLE IF NOT EXISTS accounts (
+	id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
+	permissions INTEGER NOT NULL DEFAULT 0,
+	passhash TEXT NOT NULL,
+	UNIQUE(name)
+)`).run();
+const accounts = db.query("SELECT * FROM accounts").all();
+
+server
+	.get("/login", ({html})=>html(
 <BASE_HTML>
 	<body>
-		<h1>Welcome to Owsei's server!</h1>
+	<form method="POST" action="/login">
+		<label for="name">Name:</label>
+		<input type="text" name="name" id="name" />
+		<label for="password">Password:</label>
+		<input type="password" name="password" id="password" />
+		<button>Login</button>
+	</form>
+	<p>Don't have an account? <a href="/create">Register</a></p>
+	</body>
+</BASE_HTML>
+))
+	.post("/login", ({set, cookie:{a}, html, body})=>{
+		const passhash = Bun.hash(body.password).toString()
+		const acc = accounts.find( ({name}) => name===body.name )
+		if (acc.passhash === passhash) {
+			set.redirect = '/'
+		} else {
+			set.redirect = '/login'
+		}
+}, {
+	body: t.Object({
+		name: t.String(),
+		password: t.String(),
+	})
+});
+
+server
+	.get("/create", ({html})=>html(
+<BASE_HTML>
+	<body>
+	<form method="POST" action="/create">
+		<label for="name">Name:</label>
+		<input type="text" name="name" id="name" />
+		<label for="password">Password:</label>
+		<input type="password" name="password" id="password" />
+		<button>Create Account</button>
+	</form>
+	<p>Already have an account? <a href="/login">Login</a></p>
+	</body>
+</BASE_HTML>
+))
+	.post("/create", ({set, body, cookie})=>{
+		const $passhash = Bun.hash(body.password).toString()
+		db.query(`INSERT INTO accounts (
+			name, passhash
+		) VALUES (
+			$name, $passhash
+		)`).run({ $name: body.name, $passhash });
+		accounts.push({
+			id:accounts.length,
+			name:body.name,
+			permissions:0
+		})
+		//TODO cookie
+
+		set.redirect = '/'
+}, {
+	body: t.Object({
+		name: t.String(),
+		password: t.String(),
+	})
+})
+
+})();
+
+
+server.get("/", ({ html, cookie })=>{
+	return html(
+<BASE_HTML>
+	<body>
+		<link rel="stylesheet" type="text/css" href="/files/style.css"></link>
+		<div id="header">
+			<h1 id="welcome">Welcome to Owsei's server!</h1>
+			{ cookie.id?`<p>Olá {cookie.name}</p>`:`<a href="/login/">Login</a>` }
+		</div>
 		<a href="/people">People App</a><br/>
 		<a href="/todo">Todo App</a><br/>
 		<a href="/ecb">ECB App</a><br/>
 		<a href="/bunchat">Chat App</a><br/>
 	</body>
 </BASE_HTML>
-));
+)});
 
 server.listen(8080);
 log(`🦊 Elysia is running at ${server.server?.hostname}:${server.server?.port}`);
