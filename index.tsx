@@ -168,8 +168,8 @@ server
 	.get("/people", ({ html })=>{
 		return html(<BASE_HTML>
 		<body>
-			<script src="/files/people.js"></script>
-			<link rel="stylesheet" type="text/css" href="/files/people.css"></link>
+			<script src="/files/js/people.js"></script>
+			<link rel="stylesheet" type="text/css" href="/files/css/people.css"></link>
 
 			<span>
 				<input name="text" id="addtext"></input>
@@ -414,9 +414,10 @@ setInterval(()=>{
 server.get("/bunchat", ({ html })=>html(
 	<BASE_HTML>
 		<body>
-			<link rel="stylesheet" type="text/css" href="/files/bunchat.css"></link>
-			<script src="/files/ws.js"></script>
-			<script src="/files/bunchat.js"></script>
+			<link rel="stylesheet" type="text/css" href="/files/css/bunchat.css"></link>
+			<script src="/files/js/ws.js"></script>
+			<script src="/files/js/script.js"></script>
+			<script src="/files/js/bunchat.js"></script>
 			<div id="header">
 				<h1>Bun Chat</h1>
 			</div>
@@ -435,25 +436,25 @@ server.get("/bunchat", ({ html })=>html(
 	));
 })();
 
-// account system
-(()=>{
-
 type account = {
 	name: string,
 	permissions: number,
-	passhash: string,
+	hash: string,
 }
 
-const db = new Database("./accounts.db");
-db.query(`CREATE TABLE IF NOT EXISTS accounts (
-	id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+const accountsDB = new Database("./accounts.db");
+
+accountsDB.query(`CREATE TABLE IF NOT EXISTS accounts (
+	id INTEGER NOT NULL PRIMARY KEY,
 	name TEXT NOT NULL,
 	permissions INTEGER NOT NULL DEFAULT 0,
-	passhash TEXT NOT NULL,
+	hash TEXT NOT NULL,
 	UNIQUE(name)
 )`).run();
-const accounts = db.query("SELECT * FROM accounts").all();
+const accounts = accountsDB.query("SELECT * FROM accounts").all();
 
+// login/register system
+(()=>{
 server
 	.get("/login", ({html})=>html(
 <BASE_HTML>
@@ -469,13 +470,16 @@ server
 	</body>
 </BASE_HTML>
 ))
-	.post("/login", ({set, cookie:{a}, html, body})=>{
-		const passhash = Bun.hash(body.password).toString()
+	.post("/login", ({set, cookie, html, body})=>{
+		const hash = Bun.hash(body.password).toString()
 		const acc = accounts.find( ({name}) => name===body.name )
-		if (acc.passhash === passhash) {
-			set.redirect = '/'
+		if (acc === undefined) {
+			set.redirect = '/login?error="name"'
+		} else if (acc.hash !== hash) {
+			set.redirect = '/login?error="hash"'
 		} else {
-			set.redirect = '/login'
+			setCookie("beth-uid", JSON.stringify(acc))
+			set.redirect = '/'
 		}
 }, {
 	body: t.Object({
@@ -499,19 +503,28 @@ server
 	</body>
 </BASE_HTML>
 ))
-	.post("/create", ({set, body, cookie})=>{
-		const $passhash = Bun.hash(body.password).toString()
-		db.query(`INSERT INTO accounts (
-			name, passhash
+	.post("/create", ({setCookie, set, body})=>{
+		const $hash = Bun.hash(body.password).toString()
+		accountsDB.query(`INSERT INTO accounts (
+			name, hash
 		) VALUES (
-			$name, $passhash
-		)`).run({ $name: body.name, $passhash });
+			$name, $hash
+		)`).run({ $name: body.name, $hash });
+		// TODO: figure out what to do when constraint fails
+
 		accounts.push({
 			id:accounts.length,
+			hash:$hash,
 			name:body.name,
-			permissions:0
+			permissions:0,
 		})
-		//TODO cookie
+
+		setCookie("beth-uid", JSON.stringify({
+			id:accounts.length,
+			hash:$hash,
+			name:body.name,
+			permissions:0,
+		}))
 
 		set.redirect = '/'
 }, {
@@ -523,20 +536,75 @@ server
 
 })();
 
+type Permission = {
+	name:string,
+	value:number,
+}
 
-server.get("/", ({ html, cookie })=>{
+const PERM_PLEB   = 0
+const PERM_ADMIN  = 2**0
+const PERM_PEOPLE = 2**1
+const PERM_TODO   = 2**2
+const PERM_ECB    = 2**3
+const PERM_CHAT   = 2**4
+
+const permission:Permission[] = [
+	{name:"Pleb",   value:PERM_PLEB},
+	{name:"Admin",  value:PERM_ADMIN},
+	{name:"People", value:PERM_PEOPLE},
+	{name:"Todo",   value:PERM_TODO},
+	{name:"ECB",    value:PERM_ECB},
+	{name:"Chat",   value:PERM_CHAT},
+];
+
+//TODO: test
+const hasPerm = (buid, perm) => {
+	if (!buid) return false;
+	return buid.permissions && perm;
+}
+
+// false or account object
+const parseBUid = (cookie)=>{
+	if (cookie["beth-uid"] === undefined) return false;
+	const buid = JSON.parse(cookie["beth-uid"])
+	if (!buid) return false;
+	const acc = accounts.find( ({name}) => name===buid.name )
+	if (acc === undefined || acc.hash !== buid.hash) {
+		return false;
+	}
+	return acc;
+}
+
+const getBUid = (set, cookie)=>{
+	const buid = parseBUid(cookie)
+	if (!buid) set["redirect"] = '/login';
+	return buid
+}
+
+server.get("/", ({ set, html, cookie })=>{
+	const buid = parseBUid(cookie)
+
 	return html(
 <BASE_HTML>
 	<body>
-		<link rel="stylesheet" type="text/css" href="/files/style.css"></link>
+	<link rel="stylesheet" type="text/css" href="/files/css/style.css"></link>
 		<div id="header">
 			<h1 id="welcome">Welcome to Owsei's server!</h1>
-			{ cookie.id?`<p>Olá {cookie.name}</p>`:`<a href="/login/">Login</a>` }
+			{
+				buid?
+					`<p id="login">Olá ${buid.name}</p>`:
+					`<a id="login" href="/login">Fazer Login</a>`
+			}
 		</div>
-		<a href="/people">People App</a><br/>
-		<a href="/todo">Todo App</a><br/>
-		<a href="/ecb">ECB App</a><br/>
-		<a href="/bunchat">Chat App</a><br/>
+		<div id="content">
+			<ul>
+				{buid?.permission}
+				<li><a href="/people">People App</a></li>
+				<li><a href="/todo">Todo App</a></li>
+				<li><a href="/ecb">ECB App</a></li>
+				<li><a href="/bunchat">Chat App</a></li>
+			</ul>
+		</div>
 	</body>
 </BASE_HTML>
 )});
